@@ -307,9 +307,10 @@ type NodesNodeQemuPostParameter struct {
 	Ostype    string // optional, Specify guest operating system.
 	KVM       string // optional, Enable/disable KVM hardware virtualization.
 	Pool      string // optional, Add the VM to the specified pool.
-	Cores     string // optional, The number of cores per socket.
 	Sockets   string // optional, The number of CPU sockets.
+	Cores     string // optional, The number of cores per socket.
 	Cdrom     string // optional, This is an alias for option -ide2
+	SshKeys   string   // optional, cloud-init: Setup public SSH keys (one key per l ine, OpenSSH format)
 }
 
 type nNodesNodeQemuPostParameter struct {
@@ -363,6 +364,7 @@ type nNodesNodeQemuPostParameter struct {
 	Smbios1        string   // optional, Specify SMBIOS type 1 fields.
 	SMP            int      // optional, The number of CPUs. Please use option -sockets instead.
 	Sockets        string   // optional, The number of CPU sockets.
+	SshKeys        string   // optional, cloud-init: Setup public SSH keys (one key per l ine, OpenSSH format)
 	Startdate      string   // optional, Set the initial date of the real time clock. Valid format for date are: 'now' or '2006-06-17T16:01:21' or '2006-06-17'.
 	Startup        string   // optional, Startup and shutdown behavior. Order is a non-negative number defining the general startup order. Shutdown in done with reverse ordering. Additionally you can set the 'up' or 'down' delay in seconds, which specifies a delay to wait before the next VM is started or stopped.
 	Storage        string   // optional, Default storage.

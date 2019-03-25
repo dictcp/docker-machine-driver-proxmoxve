@@ -22,9 +22,42 @@ import (
 	"github.com/docker/machine/libmachine/mcnflag"
 	"github.com/docker/machine/libmachine/state"
 	"github.com/labstack/gommon/log"
+	valid "github.com/asaskevich/govalidator"
 )
 
-const NO_VLAN = "No VLAN"
+
+
+// PVE Default values for connection and authentication
+const pveDefaultHostname string             = "192.168.1.253"
+const pveDefaultPort int                    = 8006
+const pveDefaultUsername string             = "root"
+const pveDefaultRealm string                = "pam"
+
+// PVE Default values for PVE resource constants
+const pveDefaultStorageLocation string      = "local-lvm"
+const pveDefaultStorageType string          = "raw"
+const pveDefaultStorageImageLocation string = "local:iso/xxxx.iso"
+
+// PVE VM Default values constants
+const pveDefaultVmAgent string              = "1"
+const pveDefaultVmAutoStart string          = "1"
+const pveDefaultVmOsType string             = "l26"
+const pveDefaultVmKvm string                = "1"
+
+const pveDefaultVmGuestUserName string      = "docker"
+const pveDefaultVmGuestUserPassword string  = "tcuser"
+
+const pveDefaultVmRootDiskSizeGb string     = "16"
+const pveDefaultVmMemorySizeGb int          = 8
+
+
+const pveDefaultVmNetBridge string          = "vmbr0"
+const pveDefaultVmNetModel string           = "virtio"
+const pveDefaultVmNetVlan string            = "No VLAN"
+
+const pveDefaultVmCpuSocketCount string     = "1"
+const pveDefaultVmCpuCoreCount string       = "4"
+
 
 // Driver for Proxmox VE
 type Driver struct {
@@ -32,14 +65,14 @@ type Driver struct {
 	driver *ProxmoxVE
 
 	// Basic Authentication for Proxmox VE
-	Host     string // Host to connect to
-	Node     string // optional, node to create VM on, host used if omitted but must match internal node name
-	User     string // username
-	Password string // password
-	Realm    string // realm, e.g. pam, pve, etc.
+	Host            string // Host to connect to
+	Node            string // optional, node to create VM on, host used if omitted but must match internal node name
+	User            string // username
+	Password        string // password
+	Realm           string // realm, e.g. pam, pve, etc.
 
 	// File to load as boot image RancherOS/Boot2Docker
-	ImageFile string // in the format <storagename>:iso/<filename>.iso
+	ImageFile       string // in the format <storagename>:iso/<filename>.iso
 
 	Pool            string // pool to add the VM to (necessary for users with only pool permission)
 	Storage         string // internal PVE storage name
@@ -48,17 +81,19 @@ type Driver struct {
 	Memory          int    // memory in GB
 	StorageFilename string
 
-	VMID          string // VM ID only filled by create()
-	GuestPassword string // password to log into the guest OS to copy the public key
+	VMID            string // VM ID only filled by create()
+	GuestUsername   string // username to log into the guest OS
+	GuestPassword   string // password to log into the guest OS to copy the public key
 
-	driverDebug bool // driver debugging
-	restyDebug  bool // enable resty debugging
+	driverDebug     bool   // driver debugging
+	restyDebug      bool   // enable resty debugging
 
-	NetBridge  string  // Net was defaulted to vmbr0, but should accept any other config i.e vmbr1
-	NetModel   string  // Net Interface Model, [e1000, virtio, realtek, etc...]
-	NetVlanTag int     // VLAN Tag -1 means NO Vlan
-	Cores      string  // # of cores on each cpu socket
-	Sockets    string  // # of cpu sockets
+	NetBridge       string // Net was defaulted to vmbr0, but should accept any other config i.e vmbr1
+	NetModel        string // Net Interface Model, [e1000, virtio, realtek, etc...]
+	NetVlanTag      string // VLAN
+	Cores           string // # of cores on each cpu socket
+	Sockets         string // # of cpu sockets
+	Port            int    // Proxmox VE Server listening port
 }
 
 func (d *Driver) debugf(format string, v ...interface{}) {
@@ -96,112 +131,124 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_HOST",
 			Name:   "proxmox-host",
-			Usage:  "Host to connect to",
-			Value:  "192.168.1.253",
-		},
-		mcnflag.StringFlag{
-			EnvVar: "PROXMOX_DISKSIZE_GB",
-			Name:   "proxmox-disksize-gb",
-			Usage:  "disk size in GB",
-			Value:  "16",
+			Usage:  "Proxmox VE Server Hostname or IP Address",
+			Value:  pveDefaultHostname,
 		},
 		mcnflag.IntFlag{
-			EnvVar: "PROXMOX_MEMORY_GB",
-			Name:   "proxmox-memory-gb",
-			Usage:  "memory in GB",
-			Value:  8,
-		},
-		mcnflag.StringFlag{
-			EnvVar: "PROXMOX_STORAGE",
-			Name:   "proxmox-storage",
-			Usage:  "storage to create the VM volume on",
-			Value:  "local",
+			EnvVar: "PROXMOX_PORT",
+			Name: "proxmox-PORT",
+			Usage: "Proxmox VE Server port",
+			Value: pveDefaultPort,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NODE",
 			Name:   "proxmox-node",
-			Usage:  "to to use (defaults to host)",
+			Usage:  "Proxmox VE Node (defaults to host)",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_USER",
 			Name:   "proxmox-user",
-			Usage:  "User to connect as",
-			Value:  "root",
+			Usage:  "Proxmox VE Username",
+			Value:  pveDefaultUsername,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_REALM",
 			Name:   "proxmox-realm",
-			Usage:  "Realm to connect to (default: pam)",
-			Value:  "pam",
+			Usage:  "Proxmox VE authentication Realm (default: pam)",
+			Value:  pveDefaultRealm,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_PASSWORD",
 			Name:   "proxmox-password",
-			Usage:  "Password to connect with",
+			Usage:  "Proxmox VE user Password",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
-			EnvVar: "PROXMOX_IMAGE_FILE",
-			Name:   "proxmox-image-file",
-			Usage:  "storage of the image file (e.g. local:iso/rancheros.iso)",
-			Value:  "",
-		},
-		mcnflag.StringFlag{
-			EnvVar: "PROXMOX_POOL",
-			Name:   "proxmox-pool",
-			Usage:  "pool to attach to",
-			Value:  "",
+			EnvVar: "PROXMOX_STORAGE",
+			Name:   "proxmox-storage",
+			Usage:  "Proxmox VE Storage location for volume creation",
+			Value:  pveDefaultStorageLocation,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_STORAGE_TYPE",
 			Name:   "proxmox-storage-type",
-			Usage:  "storage type to use (QCOW2 or RAW)",
-			Value:  "raw",
+			Usage:  "Proxmox VE Storage type (QCOW2 or RAW)",
+			Value:  pveDefaultStorageType,
+		},
+		mcnflag.StringFlag{
+			EnvVar: "PROXMOX_IMAGE_FILE",
+			Name:   "proxmox-image-file",
+			Usage:  "Proxmox VE Storage location of the image file (e.g. local:iso/boot2docker.iso)",
+			Value:  pveDefaultStorageImageLocation,
+		},
+		mcnflag.StringFlag{
+			EnvVar: "PROXMOX_POOL",
+			Name:   "proxmox-pool",
+			Usage:  "Proxmox VE Pool to attach VM",
+			Value:  "",
+		},
+		mcnflag.StringFlag{
+			EnvVar: "PROXMOX_DISKSIZE_GB",
+			Name:   "proxmox-disksize-gb",
+			Usage:  "Root Disk size in GB",
+			Value:  pveDefaultVmRootDiskSizeGb,
+		},
+		mcnflag.IntFlag{
+			EnvVar: "PROXMOX_MEMORY_GB",
+			Name:   "proxmox-memory-gb",
+			Usage:  "RAM Memory in GB",
+			Value:  pveDefaultVmMemorySizeGb,
+		},
+		mcnflag.StringFlag{
+			Name:  "proxmox-guest-username",
+			Usage: "Guest OS account Username (default docker for boot2docker)",
+			Value: pveDefaultVmGuestUserName,
 		},
 		mcnflag.StringFlag{
 			Name:  "proxmox-guest-password",
-			Usage: "Password to log in to the guest OS (default tcuser for boot2docker)",
-			Value: "tcuser",
+			Usage: "Guest OS account Password (default tcuser for boot2docker)",
+			Value: pveDefaultVmGuestUserPassword,
 		},
 		mcnflag.BoolFlag{
 			Name:  "proxmox-resty-debug",
-			Usage: "enables the resty debugging",
+			Usage: "Enables the resty debugging",
 		},
 		mcnflag.BoolFlag{
 			Name:  "proxmox-driver-debug",
-			Usage: "enables debugging in the driver",
+			Usage: "Enables debugging in the driver",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_BRIDGE",
 			Name: "proxmox-net-bridge",
-			Usage: "Assign Network Bridge, default to vmbr0",
-			Value: "vmbr0",
+			Usage: "Proxmox VE Network Bridge (default vmbr0)",
+			Value: pveDefaultVmNetBridge,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_MODEL",
 			Name: "proxmox-net-model",
-			Usage: "Net Interface model, default virtio",
-			Value: "virtio",
+			Usage: "Proxmox VE Network Interface model (default virtio)",
+			Value: pveDefaultVmNetModel,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_VLANTAG",
 			Name: "proxmox-net-vlantag",
-			Usage: "Net VLAN Tag",
-			Value: -1,
-		},
-		mcnflag.StringFlag{
-			EnvVar: "PROXMOX_CPU_CORES",
-			Name: "proxmox-cpu-cores",
-			Usage: "# of CPU Cores on each CPU Socket",
-			Value: "4",
+			Usage: "Prosmos VE Network VLAN Tag (1 - 4094)",
+			Value: pveDefaultVmNetVlan,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_CPU_SOCKETS",
 			Name: "proxmox-cpu-sockets",
-			Usage: "# of CPU Sockets",
-			Value: "1",
+			Usage: "Proxmox VE VM number of CPU Sockets (1 - 4)",
+			Value: pveDefaultVmCpuSocketCount,
 		},
+		mcnflag.StringFlag{
+			EnvVar: "PROXMOX_CPU_CORES",
+			Name: "proxmox-cpu-cores",
+			Usage: "Proxmox VE VM number of CPU Cores on each CPU Socket(1 - 128)",
+			Value: pveDefaultVmCpuCoreCount,
+		},
+
 	}
 }
 
@@ -228,38 +275,39 @@ func (d *Driver) DriverName() string {
 
 func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.debug("SetConfigFromFlags called")
-	d.ImageFile = flags.String("proxmox-image-file")
-	d.Host = flags.String("proxmox-host")
-	d.Node = flags.String("proxmox-node")
+	d.ImageFile     = flags.String("proxmox-image-file")
+	d.Host          = flags.String("proxmox-host")
+	d.Node          = flags.String("proxmox-node")
 	if len(d.Node) == 0 {
 		d.Node = d.Host
 	}
-	d.User = flags.String("proxmox-user")
-	d.Realm = flags.String("proxmox-realm")
-	d.Pool = flags.String("proxmox-pool")
-	d.Password = flags.String("proxmox-password")
-	d.DiskSize = flags.String("proxmox-disksize-gb")
-	d.Storage = flags.String("proxmox-storage")
-	d.StorageType = strings.ToLower(flags.String("proxmox-storage-type"))
-	d.Memory = flags.Int("proxmox-memory-gb")
+	d.User          = flags.String("proxmox-user")
+	d.Realm         = flags.String("proxmox-realm")
+	d.Pool          = flags.String("proxmox-pool")
+	d.Password      = flags.String("proxmox-password")
+	d.DiskSize      = flags.String("proxmox-disksize-gb")
+	d.Storage       = flags.String("proxmox-storage")
+	d.StorageType   = strings.ToLower(flags.String("proxmox-storage-type"))
+	d.Memory        = flags.Int("proxmox-memory-gb")
 	d.Memory *= 1024
 
-	d.SwarmMaster = flags.Bool("swarm-master")
-	d.SwarmHost = flags.String("swarm-host")
+	d.SwarmMaster   = flags.Bool("swarm-master")
+	d.SwarmHost     = flags.String("swarm-host")
+	d.GuestUsername = flags.String("proxmox-guest-username")
 	d.GuestPassword = flags.String("proxmox-guest-password")
 
-	d.driverDebug = flags.Bool("proxmox-driver-debug")
-	d.restyDebug = flags.Bool("proxmox-resty-debug")
+	d.driverDebug   = flags.Bool("proxmox-driver-debug")
+	d.restyDebug    = flags.Bool("proxmox-resty-debug")
 	if d.restyDebug {
 		d.debug("enabling Resty debugging")
 		resty.SetDebug(true)
 	}
 
-	d.NetBridge  = flags.String("proxmox-net-bridge")
-	d.NetModel   = flags.String("proxmox-net-model")
-	d.NetVlanTag = flags.Int("proxmox-net-vlantag")
-	d.Sockets    = flags.Int("proxmox-cpu-sockets")
-	d.Cores      = flags.Int("proxmox-cpu-cores")
+	d.NetBridge     = flags.String("proxmox-net-bridge")
+	d.NetModel      = flags.String("proxmox-net-model")
+	d.NetVlanTag    = flags.String("proxmox-net-vlantag")
+	d.Sockets       = flags.String("proxmox-cpu-sockets")
+	d.Cores         = flags.String("proxmox-cpu-cores")
 	return nil
 }
 
@@ -301,7 +349,7 @@ func (d *Driver) GetSSHPort() (int, error) {
 
 func (d *Driver) GetSSHUsername() string {
 	if d.SSHUser == "" {
-		d.SSHUser = "docker"
+		d.SSHUser = pveDefaultVmGuestUserName
 	}
 
 	return d.SSHUser
@@ -391,22 +439,22 @@ func (d *Driver) Create() error {
 	}
 
 	net := fmt.Sprintf("model=%s,bridge=%s", d.NetModel, d.NetBridge)
-	if  d.NetVlanTag > 0 {
+	if valid.IsInt(d.NetVlanTag) {
 		net = fmt.Sprintf("%s,tag=%d", net, d.NetVlanTag)
 	}
 
 	npp := NodesNodeQemuPostParameter{
 		VMID:      d.VMID,
-		Agent:     "1",
-		Autostart: "1",
+		Agent:     pveDefaultVmAgent,
+		Autostart: pveDefaultVmAutoStart,
 		Memory:    d.Memory,
 		Cores:     d.Cores,
 		Sockets:   d.Sockets,
 		Net0:      net, // Added to support bridge differnet from vmbr0 (vlan tag should be supported as well)
 		SCSI0:     d.Storage + ":" + volume.Filename,
-		Ostype:    "l26",
+		Ostype:    pveDefaultVmOsType,
 		Name:      d.BaseDriver.MachineName,
-		KVM:       "1", // if you test in a nested environment, you may have to change this to 0 if you do not have nested virtualization
+		KVM:       pveDefaultVmKvm, // if you test in a nested environment, you may have to change this to 0 if you do not have nested virtualization
 		Cdrom:     d.ImageFile,
 		Pool:      d.Pool,
 	}
@@ -526,7 +574,7 @@ func (d *Driver) Upgrade() error {
 func NewDriver(hostName, storePath string) drivers.Driver {
 	return &Driver{
 		BaseDriver: &drivers.BaseDriver{
-			SSHUser:     "docker",
+			SSHUser:     pveDefaultVmGuestUserName,
 			MachineName: hostName,
 			StorePath:   storePath,
 		},
