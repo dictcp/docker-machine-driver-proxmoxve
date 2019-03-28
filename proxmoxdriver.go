@@ -65,7 +65,8 @@ type Driver struct {
 	driver *ProxmoxVE
 
 	// Basic Authentication for Proxmox VE
-	Host            string // Host to connect to
+	Host            string // Proxmox VE Server Host name
+	Port            int    // Proxmox VE Server listening port
 	Node            string // optional, node to create VM on, host used if omitted but must match internal node name
 	User            string // username
 	Password        string // password
@@ -93,7 +94,7 @@ type Driver struct {
 	NetVlanTag      string // VLAN
 	Cores           string // # of cores on each cpu socket
 	Sockets         string // # of cpu sockets
-	Port            int    // Proxmox VE Server listening port
+
 }
 
 func (d *Driver) debugf(format string, v ...interface{}) {
@@ -201,14 +202,14 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Value:  pveDefaultVmMemorySizeGb,
 		},
 		mcnflag.StringFlag{
-			Name:  "proxmox-guest-username",
-			Usage: "Guest OS account Username (default docker for boot2docker)",
-			Value: pveDefaultVmGuestUserName,
+			Name:   "proxmox-guest-username",
+			Usage:  "Guest OS account Username (default docker for boot2docker)",
+			Value:  pveDefaultVmGuestUserName,
 		},
 		mcnflag.StringFlag{
-			Name:  "proxmox-guest-password",
-			Usage: "Guest OS account Password (default tcuser for boot2docker)",
-			Value: pveDefaultVmGuestUserPassword,
+			Name:   "proxmox-guest-password",
+			Usage:  "Guest OS account Password (default tcuser for boot2docker)",
+			Value:  pveDefaultVmGuestUserPassword,
 		},
 		mcnflag.BoolFlag{
 			Name:  "proxmox-resty-debug",
@@ -220,33 +221,33 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_BRIDGE",
-			Name: "proxmox-net-bridge",
-			Usage: "Proxmox VE Network Bridge (default vmbr0)",
-			Value: pveDefaultVmNetBridge,
+			Name:   "proxmox-net-bridge",
+			Usage:  "Proxmox VE Network Bridge (default vmbr0)",
+			Value:  pveDefaultVmNetBridge,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_MODEL",
-			Name: "proxmox-net-model",
-			Usage: "Proxmox VE Network Interface model (default virtio)",
-			Value: pveDefaultVmNetModel,
+			Name:   "proxmox-net-model",
+			Usage:  "Proxmox VE Network Interface model (default virtio)",
+			Value:  pveDefaultVmNetModel,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_VLANTAG",
-			Name: "proxmox-net-vlantag",
-			Usage: "Prosmos VE Network VLAN Tag (1 - 4094)",
-			Value: pveDefaultVmNetVlan,
+			Name:   "proxmox-net-vlantag",
+			Usage:  "Proxmox VE Network VLan Tag (1 - 4094)",
+			Value:  pveDefaultVmNetVlan,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_CPU_SOCKETS",
-			Name: "proxmox-cpu-sockets",
-			Usage: "Proxmox VE VM number of CPU Sockets (1 - 4)",
-			Value: pveDefaultVmCpuSocketCount,
+			Name:   "proxmox-cpu-sockets",
+			Usage:  "Proxmox VE VM number of CPU Sockets (1 - 4)",
+			Value:  pveDefaultVmCpuSocketCount,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_CPU_CORES",
-			Name: "proxmox-cpu-cores",
-			Usage: "Proxmox VE VM number of CPU Cores on each CPU Socket(1 - 128)",
-			Value: pveDefaultVmCpuCoreCount,
+			Name:   "proxmox-cpu-cores",
+			Usage:  "Proxmox VE VM number of CPU Cores on each CPU Socket(1 - 128)",
+			Value:  pveDefaultVmCpuCoreCount,
 		},
 
 	}
@@ -277,6 +278,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.debug("SetConfigFromFlags called")
 	d.ImageFile     = flags.String("proxmox-image-file")
 	d.Host          = flags.String("proxmox-host")
+	d.Port          = flags.Int("proxmox-port")
 	d.Node          = flags.String("proxmox-node")
 	if len(d.Node) == 0 {
 		d.Node = d.Host
@@ -289,7 +291,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.Storage       = flags.String("proxmox-storage")
 	d.StorageType   = strings.ToLower(flags.String("proxmox-storage-type"))
 	d.Memory        = flags.Int("proxmox-memory-gb")
-	d.Memory *= 1024
+	d.Memory       *= 1024
 
 	d.SwarmMaster   = flags.Bool("swarm-master")
 	d.SwarmHost     = flags.String("swarm-host")
