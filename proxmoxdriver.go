@@ -28,7 +28,9 @@ import (
 
 
 // PVE Default values for connection and authentication
+const pveDriverName string                  = "proxmox-ve"
 const pveDefaultHostname string             = "192.168.1.253"
+const pveDefaultNodename string             = "pve"
 const pveDefaultPort int                    = 8006
 const pveDefaultUsername string             = "root"
 const pveDefaultRealm string                = "pam"
@@ -132,73 +134,73 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_HOST",
 			Name:   "proxmox-host",
-			Usage:  "Proxmox VE Server Hostname or IP Address",
+			Usage:  "Server Hostname or IP Address",
 			Value:  pveDefaultHostname,
 		},
 		mcnflag.IntFlag{
 			EnvVar: "PROXMOX_PORT",
-			Name: "proxmox-PORT",
-			Usage: "Proxmox VE Server port",
-			Value: pveDefaultPort,
+			Name:   "proxmox-port",
+			Usage:  "Server port",
+			Value:  pveDefaultPort,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NODE",
 			Name:   "proxmox-node",
-			Usage:  "Proxmox VE Node (defaults to host)",
-			Value:  "",
+			Usage:  "Node name",
+			Value:  pveDefaultNodename,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_USER",
 			Name:   "proxmox-user",
-			Usage:  "Proxmox VE Username",
+			Usage:  "Username",
 			Value:  pveDefaultUsername,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_REALM",
 			Name:   "proxmox-realm",
-			Usage:  "Proxmox VE authentication Realm (default: pam)",
+			Usage:  "authentication Realm (default: pam)",
 			Value:  pveDefaultRealm,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_PASSWORD",
 			Name:   "proxmox-password",
-			Usage:  "Proxmox VE user Password",
+			Usage:  "user Password",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_STORAGE",
 			Name:   "proxmox-storage",
-			Usage:  "Proxmox VE Storage location for volume creation",
+			Usage:  "Storage location for volume creation",
 			Value:  pveDefaultStorageLocation,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_STORAGE_TYPE",
 			Name:   "proxmox-storage-type",
-			Usage:  "Proxmox VE Storage type (QCOW2 or RAW)",
+			Usage:  "Storage type (QCOW2 or RAW)",
 			Value:  pveDefaultStorageType,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_IMAGE_FILE",
 			Name:   "proxmox-image-file",
-			Usage:  "Proxmox VE Storage location of the image file (e.g. local:iso/boot2docker.iso)",
+			Usage:  "Storage location of the image file (e.g. local:iso/boot2docker.iso)",
 			Value:  pveDefaultStorageImageLocation,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_POOL",
 			Name:   "proxmox-pool",
-			Usage:  "Proxmox VE Pool to attach VM",
+			Usage:  "Pool to attach VM",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_DISKSIZE_GB",
 			Name:   "proxmox-disksize-gb",
-			Usage:  "Root Disk size in GB",
+			Usage:  "VM Root Disk size in GB",
 			Value:  pveDefaultVmRootDiskSizeGb,
 		},
 		mcnflag.IntFlag{
 			EnvVar: "PROXMOX_MEMORY_GB",
 			Name:   "proxmox-memory-gb",
-			Usage:  "RAM Memory in GB",
+			Usage:  "VM RAM Memory in GB",
 			Value:  pveDefaultVmMemorySizeGb,
 		},
 		mcnflag.StringFlag{
@@ -222,31 +224,31 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_BRIDGE",
 			Name:   "proxmox-net-bridge",
-			Usage:  "Proxmox VE Network Bridge (default vmbr0)",
+			Usage:  "Network Bridge (default vmbr0)",
 			Value:  pveDefaultVmNetBridge,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_MODEL",
 			Name:   "proxmox-net-model",
-			Usage:  "Proxmox VE Network Interface model (default virtio)",
+			Usage:  "Network Interface model (default virtio)",
 			Value:  pveDefaultVmNetModel,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_NET_VLANTAG",
 			Name:   "proxmox-net-vlantag",
-			Usage:  "Proxmox VE Network VLan Tag (1 - 4094)",
+			Usage:  "Network VLan Tag (1 - 4094)",
 			Value:  pveDefaultVmNetVlan,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_CPU_SOCKETS",
 			Name:   "proxmox-cpu-sockets",
-			Usage:  "Proxmox VE VM number of CPU Sockets (1 - 4)",
+			Usage:  "VM number of CPU Sockets (1 - 4)",
 			Value:  pveDefaultVmCpuSocketCount,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOX_CPU_CORES",
 			Name:   "proxmox-cpu-cores",
-			Usage:  "Proxmox VE VM number of CPU Cores on each CPU Socket(1 - 128)",
+			Usage:  "VM number of Cores per Socket (1 - 128)",
 			Value:  pveDefaultVmCpuCoreCount,
 		},
 
@@ -271,7 +273,7 @@ func (d *Driver) ping() bool {
 
 // DriverName returns the name of the driver
 func (d *Driver) DriverName() string {
-	return "proxmox-ve"
+	return pveDriverName
 }
 
 func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
@@ -280,9 +282,13 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.Host          = flags.String("proxmox-host")
 	d.Port          = flags.Int("proxmox-port")
 	d.Node          = flags.String("proxmox-node")
+
+	/*
 	if len(d.Node) == 0 {
 		d.Node = d.Host
 	}
+	*/
+
 	d.User          = flags.String("proxmox-user")
 	d.Realm         = flags.String("proxmox-realm")
 	d.Pool          = flags.String("proxmox-pool")
