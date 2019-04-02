@@ -1,4 +1,4 @@
-package dockermachinedriverproxmoxve
+package main
 
 import (
 	"github.com/docker/machine/libmachine/drivers/plugin"

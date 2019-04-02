@@ -269,9 +269,9 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Value:  "",
 		},
 		mcnflag.StringFlag{
-			EnvVar: "PROXMOXVE_GUEST_SSH_AUTHORIZED_KEY",
-			Name:   "proxmoxve-guest-ssh-authorized-key",
-			Usage:  "SSH Authorized Key on Guest OS",
+			EnvVar: "PROXMOXVE_GUEST_SSH_AUTHORIZED_KEYS",
+			Name:   "proxmoxve-guest-ssh-authorized-keys",
+			Usage:  "SSH Authorized Keys on Guest OS",
 			Value:  "",
 		},
 	}
@@ -338,7 +338,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 
 	d.GuestSSHPrivateKey     = flags.String("proxmoxve-guest-ssh-private-key")
 	d.GuestSSHPublicKey      = flags.String("proxmoxve-guest-ssh-public-key")
-	d.GuestSSHAuthorizedKeys = flags.String("proxmoxve-guest-ssh-authorized-key")
+	d.GuestSSHAuthorizedKeys = flags.String("proxmoxve-guest-ssh-authorized-keys")
 
 
 	return nil
