@@ -1,4 +1,4 @@
-package dockermachinedriverproxmoxve_test
+package proxmoxve_test
 
 import (
 	"errors"
@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"testing"
 
-	dockermachinedriverproxmoxve "github.com/lnxbil/docker-machine-driver-proxmox-ve"
+	dockermachinedriverproxmoxve "github.com/lnxbil/docker-machine-driver-proxmoxve"
 )
 
 func TestSuccessfulConnection(t *testing.T) {
