@@ -7,59 +7,99 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"gopkg.in/resty.v1"
 	"io/ioutil"
 	"os"
 	"path"
 	"strings"
 	"time"
 
-	"golang.org/x/crypto/ssh"
-	"gopkg.in/resty.v1"
-
 	sshrw "github.com/mosolovsa/go_cat_sshfilerw"
+	"golang.org/x/crypto/ssh"
 
+	valid "github.com/asaskevich/govalidator"
 	"github.com/docker/machine/libmachine/drivers"
 	"github.com/docker/machine/libmachine/mcnflag"
 	"github.com/docker/machine/libmachine/state"
 	"github.com/labstack/gommon/log"
-	valid "github.com/asaskevich/govalidator"
 )
 
 
 
 // PVE Default values for connection and authentication
-const pveDriverName                  string = "proxmoxve"
-const pveDefaultHostname             string = "192.168.1.253"
-const pveDefaultNodename             string = "pve"
-const pveDefaultPort                 int    = 8006
-const pveDefaultUsername             string = "root"
-const pveDefaultRealm                string = "pam"
+const (
+	pveDriverName                   = "proxmoxve"
+	pveDefaultPort                  = 8006
+	pveDefaultUsername              = "root"
+	pveDefaultRealm                 = "pam"
 
-// PVE Default values for PVE resource constants
-const pveDefaultStorageLocation      string = "local-lvm"
-const pveDefaultStorageType          string = "raw"
-const pveDefaultStorageImageLocation string = "local:iso/xxxx.iso"
+	// PVE Default values for PVE resource constants
+	pveDefaultStorageLocation       = "local-lvm"
+	pveDefaultStorageType           = "raw"
 
-// PVE VM Default values constants
-const pveDefaultVmAgent              string = "1"
-const pveDefaultVmAutoStart          string = "1"
-const pveDefaultVmOsType             string = "l26"
-const pveDefaultVmKvm                string = "1"
+	// PVE VM Default values constants
+	pveDefaultVmAgent               = "1"
+	pveDefaultVmAutoStart           = "1"
+	pveDefaultVmOsType              = "l26"
+	pveDefaultVmKvm                 = "1"
 
-const pveDefaultVmGuestUserName      string = "docker"
-const pveDefaultVmGuestUserPassword  string = "tcuser"
+	pveDefaultVmGuestUserName       = "docker"
+	pveDefaultVmGuestUserPassword   = "tcuser"
 
-const pveDefaultVmRootDiskSizeGb     string = "16"
-const pveDefaultVmMemorySizeGb       int    = 8
+	pveDefaultVmRootDiskSizeGb      = "16"
+	pveDefaultVmMemorySizeGb        = 8
+
+	pveDefaultVmNetBridge           = "vmbr0"
+	pveDefaultVmNetModel            = "virtio"
+
+	pveDefaultVmCpuSocketCount      = "1"
+	pveDefaultVmCpuCoreCount        = "4"
+	pveDefaultVmCpuType             = "kvm64"
+	pveDefaultVmCpuNuma             = 0
+
+	pveDiverMissingOptionMessageFmt = "proxmoxve driver requires the --%s option"
+)
+
+// Command Parameters strings
+const (
+	pveHostParameter                   = "proxmoxve-host"
+	pvePortParameter                   = "proxmoxve-port"
+	pveUserParameter                   = "proxmoxve-user"
+	pveRealmParameter                  = "proxmoxve-realm"
+	pvePasswordParameter               = "proxmoxve-password"
+	pveNodeParameter                   = "proxmoxve-node"
+	pvePoolParameter                   = "proxmoxve-pool"
+	pveImageFileParameter              = "proxmoxve-image-file"
+	pveStorageParameter                = "proxmoxve-storage"
+	pveStorageTypeParameter            = "proxmoxve-storage-type"
+	pveDiskSizeGbParameter             = "proxmoxve-disksize-gb"
+	pveMemoryGbParameter               = "proxmoxve-memory-gb"
+	pveGuestUsernameParameter          = "proxmoxve-guest-username"
+	pveGuestPasswordParameter          = "proxmoxve-guest-password"
+
+	pveNetBridgeParameter              = "proxmoxve-net-bridge"
+	pveNetModelParameter               = "proxmoxve-net-model"
+	pveNetVlanTagParameter             = "proxmoxve-net-vlantag"
+	pveCpuSocketsParameter             = "proxmoxve-cpu-sockets"
+	pveCpuCoresParameter               = "proxmoxve-cpu-cores"
+	pveCpuTypeParameter                = "proxmoxve-cpu-type"
+	pveCpuNumaParamater                = "proxmoxve-cpu-numa"
 
 
-const pveDefaultVmNetBridge          string  = "vmbr0"
-const pveDefaultVmNetModel           string  = "virtio"
-const pveDefaultVmNetVlan            string  = "No VLAN"
+	pveCpuPcidParameter                = "proxmoxve-cpu-pcid"
+	pveCpuSpecCtlrParameter            = "proxmoxve-cpu-spec-ctrl"
 
-const pveDefaultVmCpuSocketCount     string  = "1"
-const pveDefaultVmCpuCoreCount       string  = "4"
+	pveGuestSshPrivateKeyParameter     = "proxmoxve-guest-ssh-private-key"
+	pveGuestSshPublicKeyParameter      = "proxmoxve-guest-ssh-public-key"
+	pveGuestSshAuthorizedKeysParameter = "proxmoxve-guest-ssh-authorized-keys"
 
+	pveDriverDebugParameter            = "proxmoxve-driver-debug"
+	pveRestyDebugParameter             = "proxmoxve-resty-debug"
+
+	pveSwarmHostParameter              = "swarm-host"
+	pveSwarmMastertParameter           = "swarm-master"
+
+)
 
 // Driver for Proxmox VE
 type Driver struct {
@@ -96,6 +136,11 @@ type Driver struct {
 	NetVlanTag             string // VLAN
 	Cores                  string // # of cores on each cpu socket
 	Sockets                string // # of cpu sockets
+
+	CpuType                string
+	Numa                   bool
+	Pcid                   bool
+	SpecCtrl               bool
 
 	GuestSSHPrivateKey     string
 	GuestSSHPublicKey      string
@@ -137,140 +182,160 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 	return []mcnflag.Flag{
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_HOST",
-			Name:   "proxmoxve-host",
+			Name:   pveHostParameter,
 			Usage:  "Server Hostname or IP Address",
-			Value:  pveDefaultHostname,
+			Value:  "",
 		},
 		mcnflag.IntFlag{
 			EnvVar: "PROXMOXVE_PORT",
-			Name:   "proxmoxve-port",
+			Name:   pvePortParameter,
 			Usage:  "Server port",
 			Value:  pveDefaultPort,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_NODE",
-			Name:   "proxmoxve-node",
+			Name:   pveNodeParameter,
 			Usage:  "Node name",
-			Value:  pveDefaultNodename,
+			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_USER",
-			Name:   "proxmoxve-user",
+			Name:   pveUserParameter,
 			Usage:  "Username",
 			Value:  pveDefaultUsername,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_REALM",
-			Name:   "proxmoxve-realm",
-			Usage:  "authentication Realm (default: pam)",
+			Name:   pveRealmParameter,
+			Usage:  "Authentication Realm (default: pam)",
 			Value:  pveDefaultRealm,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_PASSWORD",
-			Name:   "proxmoxve-password",
-			Usage:  "user Password",
+			Name:   pvePasswordParameter,
+			Usage:  "User Password",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_STORAGE",
-			Name:   "proxmoxve-storage",
+			Name:   pveStorageParameter,
 			Usage:  "Storage location for volume creation",
 			Value:  pveDefaultStorageLocation,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_STORAGE_TYPE",
-			Name:   "proxmoxve-storage-type",
+			Name:   pveStorageTypeParameter,
 			Usage:  "Storage type (QCOW2 or RAW)",
 			Value:  pveDefaultStorageType,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_IMAGE_FILE",
-			Name:   "proxmoxve-image-file",
+			Name:   pveImageFileParameter,
 			Usage:  "Storage location of the image file (e.g. local:iso/boot2docker.iso)",
-			Value:  pveDefaultStorageImageLocation,
+			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_POOL",
-			Name:   "proxmoxve-pool",
+			Name:   pvePoolParameter,
 			Usage:  "Pool to attach VM",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_DISKSIZE_GB",
-			Name:   "proxmoxve-disksize-gb",
-			Usage:  "VM Root Disk size in GB",
+			Name:   pveDiskSizeGbParameter,
+			Usage:  "Root Disk size in GB",
 			Value:  pveDefaultVmRootDiskSizeGb,
 		},
 		mcnflag.IntFlag{
 			EnvVar: "PROXMOXVE_MEMORY_GB",
-			Name:   "proxmoxve-memory-gb",
-			Usage:  "VM RAM Memory in GB",
+			Name:   pveMemoryGbParameter,
+			Usage:  "RAM Memory in GB",
 			Value:  pveDefaultVmMemorySizeGb,
 		},
 		mcnflag.StringFlag{
-			Name:   "proxmoxve-guest-username",
+			Name:   pveGuestUsernameParameter,
 			Usage:  "Guest OS account Username (default docker for boot2docker)",
 			Value:  pveDefaultVmGuestUserName,
 		},
 		mcnflag.StringFlag{
-			Name:   "proxmoxve-guest-password",
+			Name:   pveGuestPasswordParameter,
 			Usage:  "Guest OS account Password (default tcuser for boot2docker)",
 			Value:  pveDefaultVmGuestUserPassword,
 		},
 		mcnflag.BoolFlag{
-			Name:  "proxmoxve-resty-debug",
+			Name:  pveRestyDebugParameter,
 			Usage: "Enables the resty debugging",
 		},
 		mcnflag.BoolFlag{
-			Name:  "proxmoxve-driver-debug",
+			Name:  pveDriverDebugParameter,
 			Usage: "Enables debugging in the driver",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_NET_BRIDGE",
-			Name:   "proxmoxve-net-bridge",
+			Name:   pveNetBridgeParameter,
 			Usage:  "Network Bridge (default vmbr0)",
 			Value:  pveDefaultVmNetBridge,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_NET_MODEL",
-			Name:   "proxmoxve-net-model",
+			Name:   pveNetModelParameter,
 			Usage:  "Network Interface model (default virtio)",
 			Value:  pveDefaultVmNetModel,
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_NET_VLANTAG",
-			Name:   "proxmoxve-net-vlantag",
+			Name:   pveNetVlanTagParameter,
 			Usage:  "Network VLan Tag (1 - 4094)",
-			Value:  pveDefaultVmNetVlan,
+			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_CPU_SOCKETS",
-			Name:   "proxmoxve-cpu-sockets",
-			Usage:  "VM number of CPU Sockets (1 - 4)",
+			Name:   pveCpuSocketsParameter,
+			Usage:  "Number of CPU Sockets (1 - 4)",
 			Value:  pveDefaultVmCpuSocketCount,
 		},
-
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_CPU_CORES",
-			Name:   "proxmoxve-cpu-cores",
-			Usage:  "VM number of Cores per Socket (1 - 128)",
+			Name:   pveCpuCoresParameter,
+			Usage:  "Number of Cores per Socket (1 - 128)",
 			Value:  pveDefaultVmCpuCoreCount,
 		},
 		mcnflag.StringFlag{
+			EnvVar: "PROXMOXVE_CPU_TYPE",
+			Name:   pveCpuTypeParameter,
+			Usage:  "CPU Type (kvm32, kvm64, host, etc)",
+			Value:  pveDefaultVmCpuType,
+		},
+		mcnflag.BoolFlag{
+			EnvVar: "PROXMOXVE_CPU_NUMA",
+			Name:   pveCpuNumaParamater,
+			Usage:  "Enable CPU Numa option",
+		},
+		mcnflag.BoolFlag{
+			EnvVar: "PROXMOXVE_CPU_PCID",
+			Name:   pveCpuPcidParameter,
+			Usage:  "Enable CPU pcid option",
+		},
+		mcnflag.BoolFlag{
+			EnvVar: "PROXMOXVE_CPU_SPEC_CTRL",
+			Name:   pveCpuSpecCtlrParameter,
+			Usage:  "Enable cpu spec-ctrl option",
+		},
+		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_GUEST_SSH_PRIVATE_KEY",
-			Name:   "proxmoxve-guest-ssh-private-key",
+			Name:   pveGuestSshPrivateKeyParameter,
 			Usage:  "SSH Private Key on Guest OS",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_GUEST_SSH_PUBLIC_KEY",
-			Name:   "proxmoxve-guest-ssh-public-key",
+			Name:   pveGuestSshPublicKeyParameter,
 			Usage:  "SSH Public Key on Guest OS",
 			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_GUEST_SSH_AUTHORIZED_KEYS",
-			Name:   "proxmoxve-guest-ssh-authorized-keys",
+			Name:   pveGuestSshAuthorizedKeysParameter,
 			Usage:  "SSH Authorized Keys on Guest OS",
 			Value:  "",
 		},
@@ -300,46 +365,75 @@ func (d *Driver) DriverName() string {
 
 func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.debug("SetConfigFromFlags called")
-	d.ImageFile              = flags.String("proxmoxve-image-file")
-	d.Host                   = flags.String("proxmoxve-host")
-	d.Port                   = flags.Int("proxmoxve-port")
-	d.Node                   = flags.String("proxmoxve-node")
 
-	d.User                   = flags.String("proxmoxve-user")
-	d.Realm                  = flags.String("proxmoxve-realm")
-	d.Pool                   = flags.String("proxmoxve-pool")
-	d.Password               = flags.String("proxmoxve-password")
-	d.DiskSize               = flags.String("proxmoxve-disksize-gb")
-	d.Storage                = flags.String("proxmoxve-storage")
-	d.StorageType            = strings.ToLower(flags.String("proxmoxve-storage-type"))
-	d.Memory                 = flags.Int("proxmoxve-memory-gb")
+	// Required Parameters:
+	d.Host                   = flags.String(pveHostParameter)
+	d.Node                   = flags.String(pveNodeParameter)
+	d.Password               = flags.String(pvePasswordParameter)
+	d.ImageFile              = flags.String(pveImageFileParameter)
+
+	// Required Parameters with default value
+	d.Port                   = flags.Int(pvePortParameter)
+	d.User                   = flags.String(pveUserParameter)
+	d.Realm                  = flags.String(pveRealmParameter)
+	d.Storage                = flags.String(pveStorageParameter)
+	d.StorageType            = strings.ToLower(flags.String(pveStorageTypeParameter))
+	d.DiskSize               = flags.String(pveDiskSizeGbParameter)
+	d.Memory                 = flags.Int(pveMemoryGbParameter)
+	d.GuestUsername          = flags.String(pveGuestUsernameParameter)
+	d.Sockets                = flags.String(pveCpuSocketsParameter)
+	d.Cores                  = flags.String(pveCpuCoresParameter)
+	d.NetBridge              = flags.String(pveNetBridgeParameter)
+	d.NetModel               = flags.String(pveNetModelParameter)
+
+	d.CpuType                = flags.String(pveCpuTypeParameter)
+	d.Numa                   = flags.Bool(pveCpuNumaParamater)
+	d.Pcid                   = flags.Bool(pveCpuPcidParameter)
+	d.SpecCtrl               = flags.Bool(pveCpuSpecCtlrParameter)
+
+	// Optional Paramweters:
+	d.Pool                   = flags.String(pvePoolParameter)
+	d.GuestPassword          = flags.String(pveGuestPasswordParameter)
+	d.NetVlanTag             = flags.String(pveNetVlanTagParameter)
+	d.GuestSSHPrivateKey     = flags.String(pveGuestSshPrivateKeyParameter)
+	d.GuestSSHPublicKey      = flags.String(pveGuestSshPublicKeyParameter)
+	d.GuestSSHAuthorizedKeys = flags.String(pveGuestSshAuthorizedKeysParameter)
+
+	d.driverDebug            = flags.Bool(pveDriverDebugParameter)
+	d.restyDebug             = flags.Bool(pveRestyDebugParameter)
+
+	d.SwarmMaster            = flags.Bool(pveSwarmMastertParameter)
+	d.SwarmHost              = flags.String(pveSwarmHostParameter)
+
+	// Adjust and other modifications on parameters
+	d.SSHUser                = d.GuestUsername
 	d.Memory                *= 1024
-
-	d.SwarmMaster            = flags.Bool("swarm-master")
-	d.SwarmHost              = flags.String("swarm-host")
-
-	d.SSHUser                = flags.String("proxmoxve-guest-username")
-	d.GuestUsername          = flags.String("proxmoxve-guest-username")
-	d.GuestPassword          = flags.String("proxmoxve-guest-password")
-
-	d.driverDebug            = flags.Bool("proxmoxve-driver-debug")
-	d.restyDebug             = flags.Bool("proxmoxve-resty-debug")
 
 	if d.restyDebug {
 		d.debug("enabling Resty debugging")
 		resty.SetDebug(true)
 	}
 
-	d.NetBridge              = flags.String("proxmoxve-net-bridge")
-	d.NetModel               = flags.String("proxmoxve-net-model")
-	d.NetVlanTag             = flags.String("proxmoxve-net-vlantag")
-	d.Sockets                = flags.String("proxmoxve-cpu-sockets")
-	d.Cores                  = flags.String("proxmoxve-cpu-cores")
+	if d.GuestUsername != pveDefaultVmGuestUserName && d.GuestPassword == "" {
 
-	d.GuestSSHPrivateKey     = flags.String("proxmoxve-guest-ssh-private-key")
-	d.GuestSSHPublicKey      = flags.String("proxmoxve-guest-ssh-public-key")
-	d.GuestSSHAuthorizedKeys = flags.String("proxmoxve-guest-ssh-authorized-keys")
+	}
 
+	// Required parameters validations
+	if d.Host == "" {
+		return fmt.Errorf(pveDiverMissingOptionMessageFmt, pveHostParameter)
+	}
+
+	if d.Node == "" {
+		return fmt.Errorf(pveDiverMissingOptionMessageFmt, pveNodeParameter)
+	}
+
+	if d.Password == "" {
+		return fmt.Errorf(pveDiverMissingOptionMessageFmt, pvePasswordParameter)
+	}
+
+	if d.ImageFile == "" {
+		return fmt.Errorf(pveDiverMissingOptionMessageFmt, pveImageFileParameter)
+	}
 
 	return nil
 }
@@ -476,8 +570,33 @@ func (d *Driver) Create() error {
 		net = fmt.Sprintf("%s,tag=%d", net, d.NetVlanTag)
 	}
 
+	cpuFlags  := ""
+	pcid      := ""
+	specCtrl  := ""
+	separator := ""
+	flags     := false
+
+	if d.SpecCtrl && d.Pcid {
+		separator = ";"
+		flags = true
+	}
+	if d.SpecCtrl && d.Pcid {
+		pcid = "+pcid"
+		flags = true
+	}
+	if d.SpecCtrl && d.Pcid {
+		specCtrl = "+spec-ctrl"
+		flags = true
+	}
+
+	if flags {
+		cpuFlags = fmt.Sprintf(",flags=%s%s%s",pcid, separator, specCtrl)
+	}
+	cpuDefinition := fmt.Sprintf("%s%s", d.CpuType, cpuFlags)
+
 	npp := NodesNodeQemuPostParameter{
 		VMID:      d.VMID,
+		Node:      d.Node,
 		Agent:     pveDefaultVmAgent,
 		Autostart: pveDefaultVmAutoStart,
 		Memory:    d.Memory,
@@ -491,6 +610,10 @@ func (d *Driver) Create() error {
 		Cdrom:     d.ImageFile,
 		Pool:      d.Pool,
 		SshKeys:   d.GuestSSHAuthorizedKeys,
+		Numa:      d.Numa,
+		CPU:       cpuDefinition,
+		Ciuser:    d.GuestUsername,
+		Citype:    "nocloud",
 	}
 
 	if d.StorageType == "qcow2" {

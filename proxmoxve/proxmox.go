@@ -298,6 +298,7 @@ func (p ProxmoxVE) ClusterNextIDGet(id int) (vmid string, err error) {
 // Create or restore a virtual machine.
 type NodesNodeQemuPostParameter struct {
 	VMID      string // The (unique) ID of the VM.
+	Node      string // The cluster node name
 	Memory    int    // optional, Amount of RAM for the VM in MB. This is the maximum available memory when you use the balloon device.
 	Autostart string // optional, Automatic restart after crash (currently ignored).
 	Agent     string // optional, Enable/disable Qemu GuestAgent.
@@ -310,11 +311,16 @@ type NodesNodeQemuPostParameter struct {
 	Sockets   string // optional, The number of CPU sockets.
 	Cores     string // optional, The number of cores per socket.
 	Cdrom     string // optional, This is an alias for option -ide2
-	SshKeys   string   // optional, cloud-init: Setup public SSH keys (one key per l ine, OpenSSH format)
+	SshKeys   string // optional, cloud-init: Setup public SSH keys (one key per l ine, OpenSSH format)
+	CPU       string // optional, Emulated CPU type from list with flags if present
+	Numa      bool   // optional, Enable/disable NUMA.
+	Citype    string // optional, Cloud-Init Type nocloud for linux configdrive2 for windows
+ 	Ciuser    string // optional, username to change ssh keys and pass instead of image's configured default user
 }
 
 type nNodesNodeQemuPostParameter struct {
 	VMID            string   // The (unique) ID of the VM.
+	Node            string   // The cluster node name
 	Acpi            bool     // optional, Enable/disable ACPI.
 	Agent           string   // optional, Enable/disable Qemu GuestAgent.
 	Archive         string   // optional, The backup file.
@@ -325,6 +331,8 @@ type nNodesNodeQemuPostParameter struct {
 	Boot            string   // optional, Boot on floppy (a), hard disk (c), CD-ROM (d), or network (n).
 	Bootdisk        string   // optional, Enable booting from specified disk.
 	Cdrom           string   // optional, This is an alias for option -ide2
+	Citype          string // optional, Cloud-Init Type nocloud for linux configdrive2 for windows
+	Ciuser          string // optional, username to change ssh keys and pass instead of image's configured default user
 	Cores           string   // optional, The number of cores per socket.
 	CPU             string   // optional, Emulated CPU type.
 	Cpulimit        int      // optional, Limit of CPU usage.
@@ -347,9 +355,9 @@ type nNodesNodeQemuPostParameter struct {
 	Name            string   // optional, Set a name for the VM. Only used on the configuration web interface.
 	Net0            string
 	//NET             []string // optional, Specify network devices.
-	// numa is defined more than once, we ignore the bool parameter
-	//Numa bool // optional, Enable/disable NUMA.
-	Numa           []string // optional, NUMA topology.
+	// numa is defined more than once, we ignore the []string parameter
+	Numa bool               // optional, Enable/disable NUMA.
+	//Numa           []string // optional, NUMA topology.
 	Onboot         bool     // optional, Specifies whether a VM will be started during system bootup.
 	Ostype         string   // optional, Specify guest operating system.
 	Parallel       []string // optional, Map host parallel devices (n is 0 to 2).
