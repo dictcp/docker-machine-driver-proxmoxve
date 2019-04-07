@@ -1,62 +1,62 @@
-# Docker Machine Driver - BETA
+# Proxmox VE Docker Machine Driver - BETA
 
 The incomplete state is over, as I have a working configuration:
 
-* [Download](https://github.com/lnxbil/docker-machine-driver-proxmox-ve/releases/tag/v1) or build your own driver
+* [Download](https://github.com/mhermosi/docker-machine-driver-proxmoxve/releases) or build your own driver
 * Copy to some location that is in your path
 * Check if it works:
 
-        $ docker-machine create --driver proxmox-ve --help | grep -c proxmox
-        14
+        $ docker-machine create --driver proxmoxve --help | grep -c proxmoxve
+        28
 
-* Create your own `boot2docker` ISO to have the guest agent integrated [boot2docker Pull 1319](https://github.com/boot2docker/boot2docker/pull/1319) ([Direct Download in my fork](https://github.com/lnxbil/boot2docker/releases/tag/2018-09-16))
+* Create your own `boot2docker` ISO to have the guest agent integrated [boot2docker Pull 1319](https://github.com/boot2docker/boot2docker/pull/1319) ([Direct Download in original fork](https://github.com/lnxbil/boot2docker/releases/tag/2018-09-16))
+* I am testing this with Rancher OS, so you can download the iso from them.
 * Create a script with the following contents and adapt to your needs:
 
 ```sh
-PVE_NODE="proxmox4"
-PVE_HOST="proxmox4.local"
-PVE_USER="docker"
-PVE_MEMORY=1
-PVE_REALM="pve"
-PVE_PASSWD="docker1234"
-PVE_POOL="docker-machine"
-PVE_STORAGE="zfs"
-PVE_STORAGE_TYPE="RAW"
-PVE_IMAGE_FILE="isos:iso/boot2docker-PR1319.iso"
-VM_NAME="boot2docker"
+PRIVATE_KEY=$(cat <<EOF
+-----BEGIN RSA PRIVATE KEY-----
+....
+-----END RSA PRIVATE KEY-----
+EOF
+)
+PUBLIC_KEY=$(cat <<EOF
+ssh-rsa AAAAB3Nz...
+EOF
+)
 
-
-PVE_NET_BRIDGE="vmbr0"
-PVE_NET_MODEL="virtio"
-PVE_NET_VLANTAG="1"
-PVE_CPU_CORES="4"
-PVE_CPU_SOCKETS="1"
-
-
-docker-machine rm --force $VM_NAME >/dev/null 2>&1 || true
+AUTH_KEYS=$(cat <<EOF
+ssh-rsa AAAAB3N...
+ssh-rsa AAAAB3N...
+ssh-rsa AAAAB3N...
+EOF
+)
 
 docker-machine --debug \
-    create \
-    --driver proxmox-ve \
-    --proxmox-host $PVE_HOST \
-    --proxmox-user $PVE_USER \
-    --proxmox-realm $PVE_REALM \
-    --proxmox-password $PVE_PASSWD 
-    --proxmox-node $PVE_NODE \
-    --proxmox-memory-gb $PVE_MEMORY \
-    --proxmox-image-file "$PVE_IMAGE_FILE" \
-    --proxmox-storage $PVE_STORAGE \
-    --proxmox-pool $PVE_POOL \
-    --proxmox-storage-type $PVE_STORAGE_TYPE \
-    --proxmox-net-bridge $PVE_NET_BRIDGE \
-    --proxmox-net-model $PVE_NET_MODEL \
-    --proxmox-net-vlantag $PVE_NET_VLANTAG \
-    --proxmox-cpu-cores $PVE_CPU_CORES \
-    --proxmox-cpu-sockets $PVE_CPU_SOCKETS \
-    $* \
-    $VM_NAME 
-
-eval $(docker-machine env boot2docker)
-
-docker ps
+  create -d proxmoxve \
+    --proxmoxve-host "my_proxmoxve_host.local" \
+    --proxmoxve-port "8006" \
+    --proxmoxve-node "pve" \
+    --proxmoxve-user "root" \
+    --proxmoxve-realm "pam" \
+    --proxmoxve-password "MyProxmoxUserPass" \
+    --proxmoxve-net-model "virtio" \
+    --proxmoxve-net-bridge "vmbr0" \
+    --proxmoxve-cpu-type "kvm64" \
+    --proxmoxve-cpu-numa \
+    --proxmoxve-cpu-pcid \
+    --proxmoxve-cpu-spec-ctrl \
+    --proxmoxve-cpu-sockets 2 \
+    --proxmoxve-cpu-cores 2 \
+    --proxmoxve-disksize-gb 16 \
+    --proxmoxve-image-file "local:iso/rancheros-proxmoxve-autoformat.iso" \
+    --proxmoxve-storage "local-lvm" \
+    --proxmoxve-storage-type "raw" \
+    --proxmoxve-guest-username "rancher" \
+    --proxmoxve-memory-gb 8 \
+    --proxmoxve-driver-debug \
+    --proxmoxve-resty-debug \
+    --proxmoxve-guest-ssh-authorized-keys "${AUTH_KEYS}" \
+    --proxmoxve-guest-ssh-private-key "${PRIVATE_KEY}" \
+    --proxmoxve-guest-ssh-public-key "${PUBLIC_KEY}" \
 ```
