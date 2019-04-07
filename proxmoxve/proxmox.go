@@ -329,6 +329,7 @@ type NodesNodeQemuPostParameter struct {
 	Numa      int    // optional, Enable/disable NUMA.
 	Citype    string // optional, Cloud-Init Type nocloud for linux configdrive2 for windows
  	Ciuser    string // optional, username to change ssh keys and pass instead of image's configured default user
+	IDE0      string //
 }
 
 type nNodesNodeQemuPostParameter struct {

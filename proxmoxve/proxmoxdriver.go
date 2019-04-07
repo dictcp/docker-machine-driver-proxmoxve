@@ -408,7 +408,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.SSHUser                = d.GuestUsername
 	d.Memory                *= 1024
 
-	fmt.Printf("Private key: %s\n\nPublic Key: %s\n\n", d.GuestSSHPrivateKey, d.GuestSSHPublicKey)
+	d.debugf("Private key:\n%s\n\nPublic Key:\n%s\n\n", d.GuestSSHPrivateKey, d.GuestSSHPublicKey)
 
 	if d.restyDebug {
 		d.debug("enabling Resty debugging")
@@ -554,6 +554,8 @@ func (d *Driver) PreCreateCheck() error {
 
 func (d *Driver) Create() error {
 
+	cloudinit := fmt.Sprintf("%s:cloudinit", d.Storage)
+
 	volume := NodesNodeStorageStorageContentPostParameter{
 		Filename: d.StorageFilename,
 		Size:     d.DiskSize + "G",
@@ -626,6 +628,7 @@ func (d *Driver) Create() error {
 		Numa:      numa,
 		Citype:    "nocloud",
 		Ciuser:    d.GuestUsername,
+		IDE0:      cloudinit,
 	}
 
 	if d.StorageType == "qcow2" {
@@ -643,19 +646,10 @@ func (d *Driver) Create() error {
 	d.Start()
 	return d.waitAndPrepareSSH()
 }
-func (d *Driver)PublicKeyData() ssh.AuthMethod {
-
-	key, keyerr := ssh.ParsePrivateKey([]byte(d.GuestSSHPrivateKey))
-
-	if keyerr != nil {
-		fmt.Errorf("Error reading private key: %s\n", keyerr)
-		return nil
-	}
-
-	return ssh.PublicKeys(key)
-}
 
 func (d *Driver) waitAndPrepareSSH() error {
+
+	sshUser := d.GetSSHUsername()
 	d.debugf("waiting for VM to become active, first wait 10 seconds")
 	time.Sleep(10 * time.Second)
 
@@ -669,14 +663,14 @@ func (d *Driver) waitAndPrepareSSH() error {
 
 
 	sshConfig := &ssh.ClientConfig{
-		User: d.GetSSHUsername(),
+		User: sshUser,
 		Auth: []ssh.AuthMethod{
-			d.PublicKeyData(),
+			ssh.Password(pveDefaultVmGuestUserPassword),
 		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
-	sshbasedir := "/home/" + d.GetSSHUsername() + "/.ssh"
+	sshbasedir := "/home/" + sshUser + "/.ssh"
 	hostname, _ := d.GetSSHHostname()
 	port, _ := d.GetSSHPort()
 	clientstr := fmt.Sprintf("%s:%d", hostname, port)
