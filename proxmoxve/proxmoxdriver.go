@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"gopkg.in/resty.v1"
 	"io/ioutil"
+	"net/url"
 	"os"
 	"path"
 	"strings"
@@ -17,7 +18,6 @@ import (
 	sshrw "github.com/mosolovsa/go_cat_sshfilerw"
 	"golang.org/x/crypto/ssh"
 
-	valid "github.com/asaskevich/govalidator"
 	"github.com/docker/machine/libmachine/drivers"
 	"github.com/docker/machine/libmachine/mcnflag"
 	"github.com/docker/machine/libmachine/state"
@@ -40,6 +40,7 @@ const (
 	// PVE VM Default values constants
 	pveDefaultVmAgent               = "1"
 	pveDefaultVmAutoStart           = "1"
+	pveDefaultVmOnBoot              = "1"
 	pveDefaultVmOsType              = "l26"
 	pveDefaultVmKvm                 = "1"
 
@@ -55,7 +56,6 @@ const (
 	pveDefaultVmCpuSocketCount      = "1"
 	pveDefaultVmCpuCoreCount        = "4"
 	pveDefaultVmCpuType             = "kvm64"
-	pveDefaultVmCpuNuma             = 0
 
 	pveDiverMissingOptionMessageFmt = "proxmoxve driver requires the --%s option"
 )
@@ -133,7 +133,7 @@ type Driver struct {
 
 	NetBridge              string // Net was defaulted to vmbr0, but should accept any other config i.e vmbr1
 	NetModel               string // Net Interface Model, [e1000, virtio, realtek, etc...]
-	NetVlanTag             string // VLAN
+	NetVlanTag             int // VLAN
 	Cores                  string // # of cores on each cpu socket
 	Sockets                string // # of cpu sockets
 
@@ -282,11 +282,10 @@ func (d *Driver) GetCreateFlags() []mcnflag.Flag {
 			Usage:  "Network Interface model (default virtio)",
 			Value:  pveDefaultVmNetModel,
 		},
-		mcnflag.StringFlag{
+		mcnflag.IntFlag{
 			EnvVar: "PROXMOXVE_NET_VLANTAG",
 			Name:   pveNetVlanTagParameter,
 			Usage:  "Network VLan Tag (1 - 4094)",
-			Value:  "",
 		},
 		mcnflag.StringFlag{
 			EnvVar: "PROXMOXVE_CPU_SOCKETS",
@@ -394,7 +393,7 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	// Optional Paramweters:
 	d.Pool                   = flags.String(pvePoolParameter)
 	d.GuestPassword          = flags.String(pveGuestPasswordParameter)
-	d.NetVlanTag             = flags.String(pveNetVlanTagParameter)
+	d.NetVlanTag             = flags.Int(pveNetVlanTagParameter)
 	d.GuestSSHPrivateKey     = flags.String(pveGuestSshPrivateKeyParameter)
 	d.GuestSSHPublicKey      = flags.String(pveGuestSshPublicKeyParameter)
 	d.GuestSSHAuthorizedKeys = flags.String(pveGuestSshAuthorizedKeysParameter)
@@ -409,13 +408,15 @@ func (d *Driver) SetConfigFromFlags(flags drivers.DriverOptions) error {
 	d.SSHUser                = d.GuestUsername
 	d.Memory                *= 1024
 
+	fmt.Printf("Private key: %s\n\nPublic Key: %s\n\n", d.GuestSSHPrivateKey, d.GuestSSHPublicKey)
+
 	if d.restyDebug {
 		d.debug("enabling Resty debugging")
 		resty.SetDebug(true)
 	}
 
-	if d.GuestUsername != pveDefaultVmGuestUserName && d.GuestPassword == "" {
-
+	if d.GuestUsername != pveDefaultVmGuestUserName && d.GuestPassword == pveDefaultVmGuestUserPassword {
+		d.GuestPassword = ""
 	}
 
 	// Required parameters validations
@@ -565,8 +566,10 @@ func (d *Driver) Create() error {
 		return err
 	}
 
-	net := fmt.Sprintf("model=%s,bridge=%s", d.NetModel, d.NetBridge)
-	if valid.IsInt(d.NetVlanTag) {
+	storageDrive := fmt.Sprintf("%s:%s,size=%s", d.Storage, volume.Filename, volume.Size)
+
+	net := fmt.Sprintf("%s,bridge=%s", d.NetModel, d.NetBridge)
+	if d.NetVlanTag > 0 {
 		net = fmt.Sprintf("%s,tag=%d", net, d.NetVlanTag)
 	}
 
@@ -580,11 +583,11 @@ func (d *Driver) Create() error {
 		separator = ";"
 		flags = true
 	}
-	if d.SpecCtrl && d.Pcid {
+	if d.Pcid {
 		pcid = "+pcid"
 		flags = true
 	}
-	if d.SpecCtrl && d.Pcid {
+	if d.SpecCtrl {
 		specCtrl = "+spec-ctrl"
 		flags = true
 	}
@@ -594,26 +597,35 @@ func (d *Driver) Create() error {
 	}
 	cpuDefinition := fmt.Sprintf("%s%s", d.CpuType, cpuFlags)
 
+	numa := 0
+	if d.Numa {
+		numa = 1
+	}
+
+	if d.GuestSSHPublicKey != "" {
+		d.GuestSSHAuthorizedKeys = fmt.Sprintf("%s\n%s\n",d.GuestSSHAuthorizedKeys, d.GuestSSHPublicKey)
+	}
+
 	npp := NodesNodeQemuPostParameter{
 		VMID:      d.VMID,
-		Node:      d.Node,
-		Agent:     pveDefaultVmAgent,
-		Autostart: pveDefaultVmAutoStart,
 		Memory:    d.Memory,
-		Cores:     d.Cores,
-		Sockets:   d.Sockets,
+		Autostart: pveDefaultVmAutoStart,
+		Agent:     pveDefaultVmAgent,
 		Net0:      net, // Added to support bridge differnet from vmbr0 (vlan tag should be supported as well)
-		SCSI0:     d.Storage + ":" + volume.Filename,
-		Ostype:    pveDefaultVmOsType,
 		Name:      d.BaseDriver.MachineName,
+		SCSI0:     storageDrive,
+		Onboot:    pveDefaultVmOnBoot,
+		Ostype:    pveDefaultVmOsType,
 		KVM:       pveDefaultVmKvm, // if you test in a nested environment, you may have to change this to 0 if you do not have nested virtualization
-		Cdrom:     d.ImageFile,
 		Pool:      d.Pool,
-		SshKeys:   d.GuestSSHAuthorizedKeys,
-		Numa:      d.Numa,
+		Sockets:   d.Sockets,
+		Cores:     d.Cores,
+		Cdrom:     d.ImageFile,
+		SshKeys:   strings.Replace(url.QueryEscape(d.GuestSSHAuthorizedKeys), "+", "%20", -1), // d.GuestSSHAuthorizedKeys,
 		CPU:       cpuDefinition,
-		Ciuser:    d.GuestUsername,
+		Numa:      numa,
 		Citype:    "nocloud",
+		Ciuser:    d.GuestUsername,
 	}
 
 	if d.StorageType == "qcow2" {
@@ -622,12 +634,27 @@ func (d *Driver) Create() error {
 	d.debugf("Creating VM '%s' with '%d' of memory", npp.VMID, npp.Memory)
 	err = d.driver.NodesNodeQemuPost(d.Node, &npp)
 	if err != nil {
+		// make sure rto remove the created volume
+		d.debugf("Removing disk volume '%s' with size '%s'", volume.Filename, volume.Size)
+		d.driver.NodesNodeStorageStorageContentDelete(d.Node, d.Storage, volume.Filename)
 		return err
 	}
 
 	d.Start()
 	return d.waitAndPrepareSSH()
 }
+func (d *Driver)PublicKeyData() ssh.AuthMethod {
+
+	key, keyerr := ssh.ParsePrivateKey([]byte(d.GuestSSHPrivateKey))
+
+	if keyerr != nil {
+		fmt.Errorf("Error reading private key: %s\n", keyerr)
+		return nil
+	}
+
+	return ssh.PublicKeys(key)
+}
+
 func (d *Driver) waitAndPrepareSSH() error {
 	d.debugf("waiting for VM to become active, first wait 10 seconds")
 	time.Sleep(10 * time.Second)
@@ -639,10 +666,13 @@ func (d *Driver) waitAndPrepareSSH() error {
 	d.debugf("VM is active waiting more")
 	time.Sleep(2 * time.Second)
 
+
+
 	sshConfig := &ssh.ClientConfig{
 		User: d.GetSSHUsername(),
 		Auth: []ssh.AuthMethod{
-			ssh.Password(d.GuestPassword)},
+			d.PublicKeyData(),
+		},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 	}
 
@@ -651,7 +681,7 @@ func (d *Driver) waitAndPrepareSSH() error {
 	port, _ := d.GetSSHPort()
 	clientstr := fmt.Sprintf("%s:%d", hostname, port)
 
-	d.debugf("Creating directory '%s'", sshbasedir)
+	d.debugf("Creating directory '%s' on client: %s", sshbasedir, clientstr)
 	conn, err := ssh.Dial("tcp", clientstr, sshConfig)
 	if err != nil {
 		return err

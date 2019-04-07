@@ -17,7 +17,7 @@ import (
 
 	"github.com/docker/machine/libmachine/state"
 	"github.com/labstack/gommon/log"
-	resty "gopkg.in/resty.v1"
+	"gopkg.in/resty.v1"
 )
 
 // ProxmoxVE open api connection representation
@@ -152,6 +152,9 @@ func (p ProxmoxVE) structToStringMap(i interface{}) map[string]string {
 			retval[strings.ToLower(typ.Field(i).Name)] = v
 		}
 	}
+	// MARTINH
+	fmt.Printf("structToStringMap: %s\n\n", retval)
+	fmt.Printf("structToStringMap: %+v\n\n", retval)
 	return retval
 }
 
@@ -193,6 +196,7 @@ func (p ProxmoxVE) runMethod(method string, input interface{}, output interface{
 	}
 	code := response.StatusCode()
 	if code < 200 || code > 300 {
+		fmt.Printf("RESPONSE OBJECT:\n\n%+v\n", response)
 		return fmt.Errorf("status code was '%d' and error is\n%s", code, response.Status())
 	}
 
@@ -282,6 +286,15 @@ func (p ProxmoxVE) NodesNodeStorageStorageContentPost(node string, storage strin
 	return err
 }
 
+
+// NodesNodeStorageStorageContentDelete access the API
+// Remove disk images.
+func (p ProxmoxVE) NodesNodeStorageStorageContentDelete(node string, storage string, volume string) error {
+path := fmt.Sprintf("/nodes/%s/storage/%s/content/%s", node, storage, volume)
+err := p.delete(nil, nil, path)
+return err
+}
+
 // ClusterNextIDGet Get next free VMID. If you pass an VMID it will raise an error if the ID is already used.
 func (p ProxmoxVE) ClusterNextIDGet(id int) (vmid string, err error) {
 	path := "/cluster/nextid"
@@ -298,13 +311,13 @@ func (p ProxmoxVE) ClusterNextIDGet(id int) (vmid string, err error) {
 // Create or restore a virtual machine.
 type NodesNodeQemuPostParameter struct {
 	VMID      string // The (unique) ID of the VM.
-	Node      string // The cluster node name
 	Memory    int    // optional, Amount of RAM for the VM in MB. This is the maximum available memory when you use the balloon device.
 	Autostart string // optional, Automatic restart after crash (currently ignored).
 	Agent     string // optional, Enable/disable Qemu GuestAgent.
 	Net0      string
 	Name      string // optional, Set a name for the VM. Only used on the configuration web interface.
 	SCSI0     string // optional, Use volume as VIRTIO hard disk (n is 0 to 15).
+	Onboot    string
 	Ostype    string // optional, Specify guest operating system.
 	KVM       string // optional, Enable/disable KVM hardware virtualization.
 	Pool      string // optional, Add the VM to the specified pool.
@@ -313,7 +326,7 @@ type NodesNodeQemuPostParameter struct {
 	Cdrom     string // optional, This is an alias for option -ide2
 	SshKeys   string // optional, cloud-init: Setup public SSH keys (one key per l ine, OpenSSH format)
 	CPU       string // optional, Emulated CPU type from list with flags if present
-	Numa      bool   // optional, Enable/disable NUMA.
+	Numa      int    // optional, Enable/disable NUMA.
 	Citype    string // optional, Cloud-Init Type nocloud for linux configdrive2 for windows
  	Ciuser    string // optional, username to change ssh keys and pass instead of image's configured default user
 }
@@ -356,9 +369,9 @@ type nNodesNodeQemuPostParameter struct {
 	Net0            string
 	//NET             []string // optional, Specify network devices.
 	// numa is defined more than once, we ignore the []string parameter
-	Numa bool               // optional, Enable/disable NUMA.
+	Numa           int      // optional, Enable/disable NUMA.
 	//Numa           []string // optional, NUMA topology.
-	Onboot         bool     // optional, Specifies whether a VM will be started during system bootup.
+	Onboot         string     // optional, Specifies whether a VM will be started during system bootup.
 	Ostype         string   // optional, Specify guest operating system.
 	Parallel       []string // optional, Map host parallel devices (n is 0 to 2).
 	Pool           string   // optional, Add the VM to the specified pool.
@@ -393,6 +406,12 @@ type nNodesNodeQemuPostParameter struct {
 // Create or restore a virtual machine.
 func (p ProxmoxVE) NodesNodeQemuPost(node string, input *NodesNodeQemuPostParameter) error {
 	path := fmt.Sprintf("/nodes/%s/qemu", node)
+	data, err1 := json.Marshal(input)
+	if err1 != nil {
+
+	}
+	fmt.Printf("%s\n", data)
+
 	err := p.post(input, nil, path)
 	return err
 }

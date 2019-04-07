@@ -6,5 +6,5 @@ import (
 )
 
 func main() {
-	plugin.RegisterDriver(proxmoxve.NewDriver("", ""))
+	plugin.RegisterDriver(proxmoxve.NewDriver("default", ""))
 }
